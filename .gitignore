@@ -1,0 +1,6 @@
+# temporary files
+.vs/
+*.swp
+
+# Binaries
+Debug/
