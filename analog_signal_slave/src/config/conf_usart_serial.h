@@ -1,8 +1,7 @@
-/*****************************************************************************
+/**
+ * \file *********************************************************************
  *
- * \file
- *
- * \brief Configuration of the EVK1100 board for the gpio peripheral bus example
+ * \brief USART Serial configuration
  *
  * Copyright (c) 2014-2015 Atmel Corporation. All rights reserved.
  *
@@ -40,22 +39,14 @@
  *
  * \asf_license_stop
  *
- ******************************************************************************/
+ */
 /*
  * Support and FAQ: visit <a href="http://www.atmel.com/design-support/">Atmel Support</a>
  */
 
-#ifndef _CONF_GPIO_PERIPHERAL_BUS_EXAMPLE_H
-#define _CONF_GPIO_PERIPHERAL_BUS_EXAMPLE_H
+#ifndef CONF_USART_SERIAL_H_INCLUDED
+#define CONF_USART_SERIAL_H_INCLUDED
 
-#include "conf_board.h"
+#define CONFIG_USART_SERIAL_MODE    USART_NORMAL_CHMODE
 
-/*! \name Pin Configuration
- */
-//! @{
-#define GPIO_PIN_EXAMPLE_1  LED0_GPIO
-#define GPIO_PIN_EXAMPLE_2  LED1_GPIO
-#define GPIO_PIN_EXAMPLE_3  GPIO_PUSH_BUTTON_0
-//! @}
-
-#endif  // _CONF_GPIO_PERIPHERAL_BUS_EXAMPLE_H
+#endif /* CONF_USART_SERIAL_H_INCLUDED */
