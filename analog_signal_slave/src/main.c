@@ -24,17 +24,39 @@
 #define FPBA                FOSC0              // a 12Mhz
 #define FALSE               0
 
-U32 char_recu;       // Variables globales unsigned 32bits
-U8 compteur;         // Variables globales unsigned 8bits
+U32 char_recu;
+U8 compteur;
+
+/**
+ * 8bits pour conserver l'etat des led clignotant
+ * 
+ * bit 1: le cycle actuel du clignotement (0 = off, 1 = on)
+ * bit 2: en acquisition (0 = faux, 1 = vrai)
+*/
+U8 led_status;
+#define LED_STATUS_STATE       1
+#define LED_STATUS_ACQ         2
+#define LED_SET_STATE(led) if(led_status & LED_STATUS_STATE) { gpio_clr_gpio_pin(led); } else { gpio_set_gpio_pin(led); }
 
 __attribute__((__interrupt__))
 static void led_interrupt_handler(void)
 {
 	// Reset l'interrupt?
 	tc_read_sr(TC_LED, TC_LED_CHANNEL);
-	//TODO conditionally toggle GPIO
-	gpio_tgl_gpio_pin(LED0_GPIO);
-	gpio_tgl_gpio_pin(LED1_GPIO);
+	
+	// Flip le premier bit (XOR)
+	led_status ^= LED_STATUS_STATE;
+	
+	// Allume ou eteint les led selon le premier bit de led_status
+	LED_SET_STATE(LED0_GPIO);
+	if(led_status & LED_STATUS_ACQ)
+	{
+		LED_SET_STATE(LED1_GPIO);
+	}
+	else
+	{
+		gpio_set_gpio_pin(LED1_GPIO);
+	}
 }
 
 //==================================================================================
@@ -65,6 +87,10 @@ static void usart_int_handler(void)
 			// Activer la source d'interrution du UART en fin de transmission (TXRDY)
 			AVR32_USART1.ier = AVR32_USART_IER_TXRDY_MASK;
 		}
+		
+		// DEBUG: On active ou desactive le clignotement du led1
+		// eventuellement, ceci sera activer lorsquón se met en mode acquisition (voir la spec)
+		led_status ^= LED_STATUS_ACQ;
 	}
 	else  // Donc cette l'interruption est lancee par une fin de transmission, bit TXRDY=1
 	{
@@ -88,8 +114,6 @@ static void usart_int_handler(void)
 //==================================================================================
 int main(void)
 {
-	U32 i;
-	
 	// Necessaire a la config des leds
 	volatile avr32_tc_t *tc_led = TC_LED;
 	static const tc_waveform_opt_t tc_led_waveform_opt =
@@ -140,6 +164,7 @@ int main(void)
 	};
 	// initialisation des variables globales;
 	compteur=0;
+	led_status=0;
 	
 	// Preparatif pour l'enregistrement des interrupt handler du INTC.
 	INTC_init_interrupts();
@@ -192,6 +217,5 @@ int main(void)
 	while(1)
 	{
 		// Rien a faire, tout ce fait par interuption !
-		i++;
 	}
 }
