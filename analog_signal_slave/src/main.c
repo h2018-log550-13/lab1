@@ -1,27 +1,18 @@
-/*=============================================================================*/
-/* demo3_usartIRQ.c                                                            */
-/*                                                                             */
-/* Demonstration des 2 interruptions du USART.                                 */
-/*    Utilisez le cable seriel USART1                                          */
-/*    Sur PC, utilisez PUTTY ou TERATERMINAL, mode seriel, 57600bauds N-1-8-F  */
-/*=============================================================================*/
-/* Composant FRAMEWORK a ajouter:  (GPIO et INTC deja inclu par defaut)        */
-/*     PM Power Manager    (driver)                                            */
-/*     USART               (driver)                                            */
-/*     USART debug Strings (service)                                           */
-/*=============================================================================*/
-
+//TODO: header
 #include <asf.h>
 #include "compiler.h"    // Definitions utile: de U8, S8, U16, S16, U32, S32, U32, U62, F32
 
 #define TC_LED_CHANNEL      0
 #define TC_LED              (&AVR32_TC)
 #define TC_LED_IRQ          AVR32_TC_IRQ0
-#define LED_INTRPT_PRIO     AVR32_INTC_INT0    // LED interrupt priority
+#define LED_INTRPT_PRIO     AVR32_INTC_INT1    // LED interrupt priority
+// Pour que le led clignote a 4Hz, il faut creer une interruption a une frequence de 8Hz (pour allumer et eteindre)
+// ceci correspond a une interruption tout les 125ms
+#define TC_LED_FREQ         46875              // solve(1/(12000000/32)*x=0.125,x) a la TI
 
-#define USART_INTRPT_PRIO   AVR32_INTC_INT1    // USART interrupt priority
+#define USART_INTRPT_PRIO   AVR32_INTC_INT0    // USART interrupt priority
 
-#define FPBA                FOSC0              // a 12Mhz
+#define FPBA                FOSC0              // a 12MMz = 12000000Hz
 #define FALSE               0
 
 U32 char_recu;
@@ -55,6 +46,7 @@ static void led_interrupt_handler(void)
 	}
 	else
 	{
+		// on eteint le led
 		gpio_set_gpio_pin(LED1_GPIO);
 	}
 }
@@ -185,8 +177,7 @@ int main(void)
 	// Initialise le timer
 	tc_init_waveform(tc_led, &tc_led_waveform_opt);
 	// Configure la fréquence du timer
-	// 1 interruption tous les .1s TODO: wtf this calculation means?
-	tc_write_rc(tc_led, TC_LED_CHANNEL, (FPBA /32 ) / 10);
+	tc_write_rc(tc_led, TC_LED_CHANNEL, TC_LED_FREQ);
 	tc_configure_interrupts(tc_led, TC_LED_CHANNEL, &tc_led_interrupt_config);
 	// Finalement, on demarre le timer
 	tc_start(tc_led, TC_LED_CHANNEL);
