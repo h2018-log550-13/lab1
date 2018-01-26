@@ -8,7 +8,7 @@
 #define LED_INTRPT_PRIO     AVR32_INTC_INT1    // LED interrupt priority
 // Pour que le led clignote a 4Hz, il faut creer une interruption a une frequence de 8Hz (pour allumer et eteindre)
 // ceci correspond a une interruption tout les 125ms
-#define TC_LED_FREQ         46875              // solve(1/(12000000/32)*x=0.125,x) a la TI
+#define TC_LED_FREQ         46875              // solve(1/(12000000/32)*x=0.125,x) a la TI (4hz = 46875)
 
 #define USART_INTRPT_PRIO   AVR32_INTC_INT0    // USART interrupt priority
 
@@ -82,7 +82,15 @@ static void usart_int_handler(void)
 		
 		// DEBUG: On active ou desactive le clignotement du led1
 		// eventuellement, ceci sera activer lorsquón se met en mode acquisition (voir la spec)
+		if(char_recu == 0x00000073 && (led_status&LED_STATUS_ACQ)==0) //0x00000073="s" et on check si le mode acquisition n'est pas activé
+		{
 		led_status ^= LED_STATUS_ACQ;
+		}
+		if(char_recu == 0x00000078 && (led_status&LED_STATUS_ACQ)==2)//0x00000078="x" et on check si le mode acquisition est activé
+		{
+			led_status ^= LED_STATUS_ACQ;
+		}
+		
 	}
 	else  // Donc cette l'interruption est lancee par une fin de transmission, bit TXRDY=1
 	{
