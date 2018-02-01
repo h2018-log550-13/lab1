@@ -81,6 +81,9 @@
 // From module: Part identification macros
 #include <parts.h>
 
+// From module: System Clock Control - UC3 A implementation
+#include <sysclk.h>
+
 // From module: TC - Timer/Counter
 #include <tc.h>
 

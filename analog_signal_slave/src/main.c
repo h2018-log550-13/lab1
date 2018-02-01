@@ -18,6 +18,29 @@
 U32 char_recu;
 U8 compteur;
 
+//PArtie pour Potentiomètre et Lumière Test
+
+/* Connection of the light sensor */
+#  define EXAMPLE_ADC_LIGHT_CHANNEL           2
+#  define EXAMPLE_ADC_LIGHT_PIN               AVR32_ADC_AD_2_PIN
+#  define EXAMPLE_ADC_LIGHT_FUNCTION          AVR32_ADC_AD_2_FUNCTION
+
+/* Connection of the potentiometer */
+#  define EXAMPLE_ADC_POTENTIOMETER_CHANNEL   1
+#  define EXAMPLE_ADC_POTENTIOMETER_PIN       AVR32_ADC_AD_1_PIN
+#  define EXAMPLE_ADC_POTENTIOMETER_FUNCTION  AVR32_ADC_AD_1_FUNCTION
+
+/** GPIO pin/adc-function map. */
+const gpio_map_t ADC_GPIO_MAP = {
+	#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+	{EXAMPLE_ADC_LIGHT_PIN, EXAMPLE_ADC_LIGHT_FUNCTION},
+	#endif
+	#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+	{EXAMPLE_ADC_POTENTIOMETER_PIN, EXAMPLE_ADC_POTENTIOMETER_FUNCTION}
+	#endif
+};
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /**
  * 8bits pour conserver l'etat des led clignotant
  * 
@@ -114,6 +137,42 @@ static void usart_int_handler(void)
 //==================================================================================
 int main(void)
 {
+//PArtie du potentiomètre et lumière
+#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+signed short adc_value_light = -1;
+#endif
+#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+signed short adc_value_pot   = -1;
+#endif
+
+/* Init system clocks */
+	sysclk_init();
+
+	/* init debug serial line */
+	init_dbg_rs232(sysclk_get_cpu_hz());
+
+	/* Assign and enable GPIO pins to the ADC function. */
+	gpio_enable_module(ADC_GPIO_MAP, sizeof(ADC_GPIO_MAP) /
+			sizeof(ADC_GPIO_MAP[0]));
+
+	/* Configure the ADC peripheral module.
+	 * Lower the ADC clock to match the ADC characteristics (because we
+	 * configured the CPU clock to 12MHz, and the ADC clock characteristics are
+	 *  usually lower; cf. the ADC Characteristic section in the datasheet). */
+	AVR32_ADC.mr |= 0x1 << AVR32_ADC_MR_PRESCAL_OFFSET;
+	adc_configure(&AVR32_ADC);
+
+	/* Enable the ADC channels. */
+#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+	adc_enable(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
+#endif
+#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+	adc_enable(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
+#endif
+
+	/* Display a header to user */
+	print_dbg("\x1B[2J\x1B[H\r\nADC Example\r\n");
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Necessaire a la config des leds
 	volatile avr32_tc_t *tc_led = TC_LED;
 	static const tc_waveform_opt_t tc_led_waveform_opt =
@@ -215,6 +274,33 @@ int main(void)
 
 	while(1)
 	{
-		// Rien a faire, tout ce fait par interuption !
+		// Rien a faire, tout ce fait par interuption 
+		//JE sais que c'est pas supposer aller là, mais c'Est pour des fin de tests (Potentiometre et lumiere)
+		adc_start(&AVR32_ADC);
+		#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+		/* Get value for the light adc channel */
+		adc_value_light = adc_get_value(&AVR32_ADC,
+		EXAMPLE_ADC_LIGHT_CHANNEL);
+		
+		/* Display value to user */
+		print_dbg("HEX Value for Channel light : 0x");
+		print_dbg_hex(adc_value_light);
+		print_dbg("\r\n");
+		#endif
+
+		#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+		/* Get value for the potentiometer adc channel */
+		adc_value_pot = adc_get_value(&AVR32_ADC,
+		EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
+		
+		/* Display value to user */
+		print_dbg("HEX Value for Channel pot : 0x");
+		print_dbg_hex(adc_value_pot);
+		print_dbg("\r\n");
+		#endif
+
+		/* Slow down the display of converted values */
+		//delay_ms(500);
+		//============================================================================================================================================
 	}
 }
