@@ -5,11 +5,15 @@
 #define TC_INTERVAL_CHANNEL      0
 #define TC_INTERVAL              (&AVR32_TC)
 #define TC_INTERVAL_IRQ          AVR32_TC_IRQ0
-#define INTERVAL_INTRPT_PRIO     AVR32_INTC_INT0    // LED interrupt priority
+#define INTERVAL_INTRPT_PRIO     AVR32_INTC_INT1    // LED interrupt priority
 // On veut une interruption a 2000Hz
-#define TC_LED_FREQ         750
+#define TC_LED_FREQ              750
 
-#define USART_INTRPT_PRIO   AVR32_INTC_INT1    // USART interrupt priority
+#define SAMPLE_RATE_TGL_BTN      GPIO_PUSH_BUTTON_0
+#define SAMPLE_RATE_TGL_IRQ      AVR32_GPIO_IRQ_0
+#define SAMPLE_RATE_TGL_PRIO     AVR32_INTC_INT0
+
+#define USART_INTRPT_PRIO   AVR32_INTC_INT2    // USART interrupt priority
 
 #define FPBA                FOSC0              // a 12MMz = 12000000Hz
 #define FALSE               0
@@ -59,7 +63,7 @@ U8 led_timer_counter;
 __attribute__((__interrupt__))
 static void interval_interrupt_handler(void)
 {
-	// Reset l'interrupt?
+	// Reset l'interrupt
 	tc_read_sr(TC_INTERVAL, TC_INTERVAL_CHANNEL);
 	
 	status ^= STATUS_INTERVAL_STATE;
@@ -91,9 +95,10 @@ static void interval_interrupt_handler(void)
 }
 
 __attribute__((__interrupt__))
-static void toggle_sample_rate(void)
+static void toggle_sample_rate_handler(void)
 {
-	//TODO
+	// reset l'interrupt
+	gpio_clear_pin_interrupt_flag(SAMPLE_RATE_TGL_BTN);
 	status ^= STATUS_SAMPLE_RATE;
 }
 
@@ -234,6 +239,13 @@ int main(void)
 	tc_configure_interrupts(tc_led, TC_INTERVAL_CHANNEL, &tc_led_interrupt_config);
 	// Finalement, on demarre le timer
 	tc_start(tc_led, TC_INTERVAL_CHANNEL);
+	
+	/*****************************/
+	/**	Configuration du bouton **/
+	/*****************************/
+	gpio_enable_gpio_pin(SAMPLE_RATE_TGL_BTN);
+	INTC_register_interrupt(&toggle_sample_rate_handler, SAMPLE_RATE_TGL_IRQ + (SAMPLE_RATE_TGL_BTN/8), SAMPLE_RATE_TGL_PRIO);
+	gpio_enable_pin_interrupt(SAMPLE_RATE_TGL_BTN, GPIO_FALLING_EDGE);
 	
 	/****************************/
 	/**	Configuration de USART **/
