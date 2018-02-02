@@ -42,6 +42,12 @@ const gpio_map_t ADC_GPIO_MAP = {
 	{EXAMPLE_ADC_POTENTIOMETER_PIN, EXAMPLE_ADC_POTENTIOMETER_FUNCTION}
 	#endif
 };
+#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+signed short adc_value_light = -1;
+#endif
+#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+signed short adc_value_pot   = -1;
+#endif
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -88,8 +94,34 @@ static void interval_interrupt_handler(void)
 	
 	// On exécute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
 	// ou lorsque le flag STATUS_INTERVAL_STATE est vrai (1 cyce sur 2, effectivement 1000 fois par seconde)
-	if(status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE)) {
+	if((status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE))&& (status&STATUS_IN_ACQ)) {
 		// Code pour l'echantillonage ici
+		//tests (Potentiometre et lumiere)
+		//if(status&STATUS_IN_ACQ)
+		//{
+			adc_start(&AVR32_ADC);
+			#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+			/* Get value for the light adc channel */
+			adc_value_light = adc_get_value(&AVR32_ADC,
+			EXAMPLE_ADC_LIGHT_CHANNEL);
+			
+			/* Display value to user */
+			print_dbg("HEX Value for Channel light : 0x");
+			print_dbg_hex(adc_value_light);
+			print_dbg("\r\n");
+			#endif
+
+			#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+			/* Get value for the potentiometer adc channel */
+			adc_value_pot = adc_get_value(&AVR32_ADC,
+			EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
+			
+			/* Display value to user */
+			print_dbg("HEX Value for Channel pot : 0x");
+			print_dbg_hex(adc_value_pot);
+			print_dbg("\r\n");
+			#endif
+		//}
 	}
 
 }
@@ -269,36 +301,20 @@ int main(void)
 	// Activer la source d'interrution du UART en reception (RXRDY)
 	AVR32_USART1.ier = AVR32_USART_IER_RXRDY_MASK;
 
+	/* Assign and enable GPIO pins to the ADC function. */
+	gpio_enable_module(ADC_GPIO_MAP, sizeof(ADC_GPIO_MAP) /
+	sizeof(ADC_GPIO_MAP[0]));
+
+	//Enable ADC Channel
+	#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+	adc_enable(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
+	#endif
+	#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+	adc_enable(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
+	#endif
 
 	while(1)
 	{
 		// Rien a faire, tout ce fait par interuption 
-		//JE sais que c'est pas supposer aller là, mais c'Est pour des fin de tests (Potentiometre et lumiere)
-		//adc_start(&AVR32_ADC);
-		//#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-		/* Get value for the light adc channel */
-		//adc_value_light = adc_get_value(&AVR32_ADC,
-		//EXAMPLE_ADC_LIGHT_CHANNEL);
-		
-		/* Display value to user */
-		//print_dbg("HEX Value for Channel light : 0x");
-		//print_dbg_hex(adc_value_light);
-		//print_dbg("\r\n");
-		//#endif
-
-		//#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-		/* Get value for the potentiometer adc channel */
-		//adc_value_pot = adc_get_value(&AVR32_ADC,
-		//EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
-		
-		/* Display value to user */
-		//print_dbg("HEX Value for Channel pot : 0x");
-		//print_dbg_hex(adc_value_pot);
-		//print_dbg("\r\n");
-		//#endif
-
-		/* Slow down the display of converted values */
-		//delay_ms(500);
-		//============================================================================================================================================
 	}
 }

@@ -55,9 +55,15 @@
 // From module: ADC - Analog to Digital Converter
 #include <adc.h>
 
+// From module: CPU Cycle Counter
+#include <cycle_counter.h>
+
 // From module: Compiler abstraction layer and code utilities
 #include <compiler.h>
 #include <status_codes.h>
+
+// From module: Delay routines
+#include <delay.h>
 
 // From module: EVK1100
 #include <led.h>
