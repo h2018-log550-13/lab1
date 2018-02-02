@@ -2,15 +2,14 @@
 #include <asf.h>
 #include "compiler.h"    // Definitions utile: de U8, S8, U16, S16, U32, S32, U32, U62, F32
 
-#define TC_LED_CHANNEL      0
-#define TC_LED              (&AVR32_TC)
-#define TC_LED_IRQ          AVR32_TC_IRQ0
-#define LED_INTRPT_PRIO     AVR32_INTC_INT1    // LED interrupt priority
-// Pour que le led clignote a 4Hz, il faut creer une interruption a une frequence de 8Hz (pour allumer et eteindre)
-// ceci correspond a une interruption tout les 125ms
-#define TC_LED_FREQ         46875              // solve(1/(12000000/32)*x=0.125,x) a la TI (4hz = 46875)
+#define TC_INTERVAL_CHANNEL      0
+#define TC_INTERVAL              (&AVR32_TC)
+#define TC_INTERVAL_IRQ          AVR32_TC_IRQ0
+#define INTERVAL_INTRPT_PRIO     AVR32_INTC_INT0    // LED interrupt priority
+// On veut une interruption a 2000Hz
+#define TC_LED_FREQ         750
 
-#define USART_INTRPT_PRIO   AVR32_INTC_INT0    // USART interrupt priority
+#define USART_INTRPT_PRIO   AVR32_INTC_INT1    // USART interrupt priority
 
 #define FPBA                FOSC0              // a 12MMz = 12000000Hz
 #define FALSE               0
@@ -42,36 +41,60 @@ const gpio_map_t ADC_GPIO_MAP = {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * 8bits pour conserver l'etat des led clignotant
- * 
+ * 8bits pour conserver l'etat du programme
  * bit 1: le cycle actuel du clignotement (0 = off, 1 = on)
  * bit 2: en acquisition (0 = faux, 1 = vrai)
+ * bit 3: taux d'échantillonage (0=1000, 1=2000)
 */
-U8 led_status;
-#define LED_STATUS_STATE       1
-#define LED_STATUS_ACQ         2
-#define LED_SET_STATE(led) if(led_status & LED_STATUS_STATE) { gpio_clr_gpio_pin(led); } else { gpio_set_gpio_pin(led); }
+U8 status;
+U8 led_timer_counter;
+#define STATUS_LED_POWER_STATE    1
+#define STATUS_INTERVAL_STATE     2
+#define STATUS_IN_ACQ             4
+#define STATUS_SAMPLE_RATE        8
+
+// Allume ou eteint un led selon STATUS_LED_POWER_STATE
+#define LED_SET_STATE(led) if(status & STATUS_LED_POWER_STATE) { gpio_clr_gpio_pin(led); } else { gpio_set_gpio_pin(led); }
 
 __attribute__((__interrupt__))
-static void led_interrupt_handler(void)
+static void interval_interrupt_handler(void)
 {
 	// Reset l'interrupt?
-	tc_read_sr(TC_LED, TC_LED_CHANNEL);
+	tc_read_sr(TC_INTERVAL, TC_INTERVAL_CHANNEL);
 	
-	// Flip le premier bit (XOR)
-	led_status ^= LED_STATUS_STATE;
+	status ^= STATUS_INTERVAL_STATE;
+	// Puisque cette fonction est execute 2000 fois par secondes, on skip 250 cycles avant de mofifier les led (4Hz)
+	if(++led_timer_counter >= 250) {
+		led_timer_counter=0;
+			// Flip le premier bit (XOR)
+			status ^= STATUS_LED_POWER_STATE;
+			
+			// Allume ou eteint les led selon le premier bit de led_status
+			LED_SET_STATE(LED0_GPIO);
+			if(status & STATUS_IN_ACQ)
+			{
+				LED_SET_STATE(LED1_GPIO);
+			}
+			else
+			{
+				// on eteint le led
+				gpio_set_gpio_pin(LED1_GPIO);
+			}
+	}
 	
-	// Allume ou eteint les led selon le premier bit de led_status
-	LED_SET_STATE(LED0_GPIO);
-	if(led_status & LED_STATUS_ACQ)
-	{
-		LED_SET_STATE(LED1_GPIO);
+	// On exécute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
+	// ou lorsque le flag STATUS_INTERVAL_STATE est vrai (1 cyce sur 2, effectivement 1000 fois par seconde)
+	if(status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE)) {
+		// Code pour l'echantillonage ici
 	}
-	else
-	{
-		// on eteint le led
-		gpio_set_gpio_pin(LED1_GPIO);
-	}
+
+}
+
+__attribute__((__interrupt__))
+static void toggle_sample_rate(void)
+{
+	//TODO
+	status ^= STATUS_SAMPLE_RATE;
 }
 
 //==================================================================================
@@ -105,13 +128,13 @@ static void usart_int_handler(void)
 		
 		// DEBUG: On active ou desactive le clignotement du led1
 		// eventuellement, ceci sera activer lorsquón se met en mode acquisition (voir la spec)
-		if(char_recu == 0x00000073 && (led_status&LED_STATUS_ACQ)==0) //0x00000073="s" et on check si le mode acquisition n'est pas activé
+		if(char_recu == 0x00000073 && !(status & STATUS_IN_ACQ)) //0x00000073="s" et on check si le mode acquisition n'est pas activé
 		{
-		led_status ^= LED_STATUS_ACQ;
+		    status ^= STATUS_IN_ACQ;
 		}
-		if(char_recu == 0x00000078 && (led_status&LED_STATUS_ACQ)==2)//0x00000078="x" et on check si le mode acquisition est activé
+		if(char_recu == 0x00000078 && (status & STATUS_IN_ACQ))//0x00000078="x" et on check si le mode acquisition est activé
 		{
-			led_status ^= LED_STATUS_ACQ;
+			status ^= STATUS_IN_ACQ;
 		}
 		
 	}
@@ -137,47 +160,10 @@ static void usart_int_handler(void)
 //==================================================================================
 int main(void)
 {
-//PArtie du potentiomètre et lumière
-#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-signed short adc_value_light = -1;
-#endif
-#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-signed short adc_value_pot   = -1;
-#endif
-
-/* Init system clocks */
-	sysclk_init();
-
-	/* init debug serial line */
-	init_dbg_rs232(sysclk_get_cpu_hz());
-
-	/* Assign and enable GPIO pins to the ADC function. */
-	gpio_enable_module(ADC_GPIO_MAP, sizeof(ADC_GPIO_MAP) /
-			sizeof(ADC_GPIO_MAP[0]));
-
-	/* Configure the ADC peripheral module.
-	 * Lower the ADC clock to match the ADC characteristics (because we
-	 * configured the CPU clock to 12MHz, and the ADC clock characteristics are
-	 *  usually lower; cf. the ADC Characteristic section in the datasheet). */
-	AVR32_ADC.mr |= 0x1 << AVR32_ADC_MR_PRESCAL_OFFSET;
-	adc_configure(&AVR32_ADC);
-
-	/* Enable the ADC channels. */
-#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-	adc_enable(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
-#endif
-#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-	adc_enable(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
-#endif
-
-	/* Display a header to user */
-	print_dbg("\x1B[2J\x1B[H\r\nADC Example\r\n");
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Necessaire a la config des leds
-	volatile avr32_tc_t *tc_led = TC_LED;
+	volatile avr32_tc_t *tc_led = TC_INTERVAL;
 	static const tc_waveform_opt_t tc_led_waveform_opt =
 	{
-		.channel  = TC_LED_CHANNEL,                    // Channel selection.
+		.channel  = TC_INTERVAL_CHANNEL,                    // Channel selection.
 
 		.bswtrg   = TC_EVT_EFFECT_NOOP,                // Software trigger effect on TIOB.
 		.beevt    = TC_EVT_EFFECT_NOOP,                // External event effect on TIOB.
@@ -223,7 +209,7 @@ signed short adc_value_pot   = -1;
 	};
 	// initialisation des variables globales;
 	compteur=0;
-	led_status=0;
+	status=0;
 	
 	// Preparatif pour l'enregistrement des interrupt handler du INTC.
 	INTC_init_interrupts();
@@ -238,16 +224,16 @@ signed short adc_value_pot   = -1;
 	// On initialise le crystal externe sur le channel 0
 	pcl_switch_to_osc(PCL_OSC0, FOSC0, OSC0_STARTUP);
 	// On setup le interrupt handler
-	INTC_register_interrupt(&led_interrupt_handler, TC_LED_IRQ, LED_INTRPT_PRIO);
+	INTC_register_interrupt(&interval_interrupt_handler, TC_INTERVAL_IRQ, INTERVAL_INTRPT_PRIO);
 	// Autoriser les interruptions.
 	Enable_global_interrupt();
 	// Initialise le timer
 	tc_init_waveform(tc_led, &tc_led_waveform_opt);
 	// Configure la fréquence du timer
-	tc_write_rc(tc_led, TC_LED_CHANNEL, TC_LED_FREQ);
-	tc_configure_interrupts(tc_led, TC_LED_CHANNEL, &tc_led_interrupt_config);
+	tc_write_rc(tc_led, TC_INTERVAL_CHANNEL, TC_LED_FREQ);
+	tc_configure_interrupts(tc_led, TC_INTERVAL_CHANNEL, &tc_led_interrupt_config);
 	// Finalement, on demarre le timer
-	tc_start(tc_led, TC_LED_CHANNEL);
+	tc_start(tc_led, TC_INTERVAL_CHANNEL);
 	
 	/****************************/
 	/**	Configuration de USART **/
@@ -266,7 +252,7 @@ signed short adc_value_pot   = -1;
 	// Enregister le USART interrupt handler au INTC, level INT1
 	INTC_register_interrupt(&usart_int_handler, AVR32_USART1_IRQ, USART_INTRPT_PRIO);
 
-	print_dbg("Taper un caractere sur le clavier du PC avec TeraTerminal...\r\n\n");
+	print_dbg("Pret\r\n\n");
 
 	// Activer la source d'interrution du UART en reception (RXRDY)
 	AVR32_USART1.ier = AVR32_USART_IER_RXRDY_MASK;
@@ -276,28 +262,28 @@ signed short adc_value_pot   = -1;
 	{
 		// Rien a faire, tout ce fait par interuption 
 		//JE sais que c'est pas supposer aller là, mais c'Est pour des fin de tests (Potentiometre et lumiere)
-		adc_start(&AVR32_ADC);
-		#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
+		//adc_start(&AVR32_ADC);
+		//#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
 		/* Get value for the light adc channel */
-		adc_value_light = adc_get_value(&AVR32_ADC,
-		EXAMPLE_ADC_LIGHT_CHANNEL);
+		//adc_value_light = adc_get_value(&AVR32_ADC,
+		//EXAMPLE_ADC_LIGHT_CHANNEL);
 		
 		/* Display value to user */
-		print_dbg("HEX Value for Channel light : 0x");
-		print_dbg_hex(adc_value_light);
-		print_dbg("\r\n");
-		#endif
+		//print_dbg("HEX Value for Channel light : 0x");
+		//print_dbg_hex(adc_value_light);
+		//print_dbg("\r\n");
+		//#endif
 
-		#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
+		//#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
 		/* Get value for the potentiometer adc channel */
-		adc_value_pot = adc_get_value(&AVR32_ADC,
-		EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
+		//adc_value_pot = adc_get_value(&AVR32_ADC,
+		//EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
 		
 		/* Display value to user */
-		print_dbg("HEX Value for Channel pot : 0x");
-		print_dbg_hex(adc_value_pot);
-		print_dbg("\r\n");
-		#endif
+		//print_dbg("HEX Value for Channel pot : 0x");
+		//print_dbg_hex(adc_value_pot);
+		//print_dbg("\r\n");
+		//#endif
 
 		/* Slow down the display of converted values */
 		//delay_ms(500);
