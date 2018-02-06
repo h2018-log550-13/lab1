@@ -6,7 +6,7 @@
 
 #define TC_LED_CHANNEL         0
 #define TC_LED_IRQ             AVR32_TC_IRQ0
-#define LED_INTRPT_PRIO        AVR32_INTC_INT0    // LED interrupt priority
+#define LED_INTRPT_PRIO        AVR32_INTC_INT2    // LED interrupt priority
 // On veut 8 interruptions par seconde (1000/8=125ms)
 // Comme la valeur maximale est 65535, on configure une frequence de 32Hz et on ignore 1 interruption sur 8
 #define TC_LED_FREQ            46875              // solve(1/(fpba/32)*x=0.125, x) => x=46875
@@ -21,7 +21,7 @@
 #define SAMPLE_RATE_TGL_IRQ    AVR32_GPIO_IRQ_0
 #define SAMPLE_RATE_TGL_PRIO   AVR32_INTC_INT0
 
-#define USART_INTRPT_PRIO      AVR32_INTC_INT2    // USART interrupt priority
+#define USART_INTRPT_PRIO      AVR32_INTC_INT0    // USART interrupt priority
 
 #define FPBA                   FOSC0              // a 12MMz = 12000000Hz
 #define FALSE                  0
@@ -51,10 +51,10 @@ const gpio_map_t ADC_GPIO_MAP = {
 	#endif
 };
 #if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-signed short adc_value_light = -1;
+volatile signed short adc_value_light = -1;
 #endif
 #if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-signed short adc_value_pot   = -1;
+volatile signed short adc_value_pot   = -1;
 #endif
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -112,24 +112,13 @@ static void interval_sample_handler(void)
 			adc_start(&AVR32_ADC);
 			#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
 			/* Get value for the light adc channel */
-			adc_value_light = adc_get_value(&AVR32_ADC,
-			EXAMPLE_ADC_LIGHT_CHANNEL);
+			adc_value_light = adc_get_value(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
 			
-			/* Display value to user */
-			print_dbg("HEX Value for Channel light : 0x");
-			print_dbg_hex(adc_value_light);
-			print_dbg("\r\n");
 			#endif
 
 			#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
 			/* Get value for the potentiometer adc channel */
-			adc_value_pot = adc_get_value(&AVR32_ADC,
-			EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
-			
-			/* Display value to user */
-			print_dbg("HEX Value for Channel pot : 0x");
-			print_dbg_hex(adc_value_pot);
-			print_dbg("\r\n");
+			adc_value_pot = adc_get_value(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
 			#endif
 		//}
 	}
@@ -168,9 +157,9 @@ static void usart_int_handler(void)
 		//Retransmettre ce caractere vers le PC, si transmetteur disponible, renvoi un echo
 		if (AVR32_USART1.csr & (AVR32_USART_CSR_TXRDY_MASK))
 		{
-			AVR32_USART1.thr = (char_recu) & AVR32_USART_THR_TXCHR_MASK; // on renvoi le char
+			//AVR32_USART1.thr = (char_recu) & AVR32_USART_THR_TXCHR_MASK; // on renvoi le char
 			// Activer la source d'interrution du UART en fin de transmission (TXRDY)
-			AVR32_USART1.ier = AVR32_USART_IER_TXRDY_MASK;
+			//AVR32_USART1.ier = AVR32_USART_IER_TXRDY_MASK;
 		}
 		
 		// DEBUG: On active ou desactive le clignotement du led1
@@ -183,6 +172,8 @@ static void usart_int_handler(void)
 		{
 			status ^= STATUS_IN_ACQ;
 		}
+		print_dbg_hex(adc_value_pot);
+		print_dbg("\r\n");
 		
 	}
 	else  // Donc cette l'interruption est lancee par une fin de transmission, bit TXRDY=1
@@ -209,9 +200,33 @@ int main(void)
 {
 	volatile avr32_tc_t *tc_led = TC_INTERVAL;
 	volatile avr32_tc_t *tc_sample = TC_INTERVAL;
-	static const tc_waveform_opt_t tc_waveform_opt =
+	static const tc_waveform_opt_t tc_led_waveform_opt =
 	{
 		.channel  = TC_LED_CHANNEL,                    // Channel selection.
+
+		.bswtrg   = TC_EVT_EFFECT_NOOP,                // Software trigger effect on TIOB.
+		.beevt    = TC_EVT_EFFECT_NOOP,                // External event effect on TIOB.
+		.bcpc     = TC_EVT_EFFECT_NOOP,                // RC compare effect on TIOB.
+		.bcpb     = TC_EVT_EFFECT_NOOP,                // RB compare effect on TIOB.
+
+		.aswtrg   = TC_EVT_EFFECT_NOOP,                // Software trigger effect on TIOA.
+		.aeevt    = TC_EVT_EFFECT_NOOP,                // External event effect on TIOA.
+		.acpc     = TC_EVT_EFFECT_NOOP,                // RC compare effect on TIOA: toggle.
+		.acpa     = TC_EVT_EFFECT_NOOP,                // RA compare effect on TIOA: toggle
+		.wavsel   = TC_WAVEFORM_SEL_UP_MODE_RC_TRIGGER,// Waveform selection: Up mode with automatic trigger(reset) on RC compare.
+		.enetrg   = FALSE,                             // External event trigger enable.
+		.eevt     = 0,                                 // External event selection.
+		.eevtedg  = TC_SEL_NO_EDGE,                    // External event edge selection.
+		.cpcdis   = FALSE,                             // Counter disable when RC compare.
+		.cpcstop  = FALSE,                             // Counter clock stopped with RC compare.
+
+		.burst    = FALSE,                             // Burst signal selection.
+		.clki     = FALSE,                             // Clock inversion.
+		.tcclks   = TC_CLOCK_SOURCE_TC4                // Internal source clock 3, connected to fPBA / 8.
+	};
+	static const tc_waveform_opt_t tc_sample_waveform_opt =
+	{
+		.channel  = TC_SAMPLE_CHANNEL,                 // Channel selection.
 
 		.bswtrg   = TC_EVT_EFFECT_NOOP,                // Software trigger effect on TIOB.
 		.beevt    = TC_EVT_EFFECT_NOOP,                // External event effect on TIOB.
@@ -268,13 +283,13 @@ int main(void)
 	/***************************/
 	/** Configuration des LED **/
 	/***************************/
-	
+
 	// On initialise le crystal externe sur le channel 0
 	pcl_switch_to_osc(PCL_OSC0, FPBA, OSC0_STARTUP);
 	// On setup le interrupt handler
 	INTC_register_interrupt(&interval_led_handler, TC_LED_IRQ, LED_INTRPT_PRIO);
 	// Initialise le timer
-	tc_init_waveform(tc_led, &tc_waveform_opt);
+	tc_init_waveform(tc_led, &tc_led_waveform_opt);
 	// Configure la fréquence du timer
 	tc_write_rc(tc_led, TC_LED_CHANNEL, TC_LED_FREQ);
 	tc_configure_interrupts(tc_led, TC_LED_CHANNEL, &tc_interrupt_config);
@@ -287,11 +302,11 @@ int main(void)
 
 	// Essentiellement les meme etapes que pour les led
 	INTC_register_interrupt(&interval_sample_handler, TC_SAMPLE_IRQ, SAMPLE_INTRPT_PRIO);
-	tc_init_waveform(tc_sample, &tc_waveform_opt);
+	tc_init_waveform(tc_sample, &tc_sample_waveform_opt);
 	tc_write_rc(tc_sample, TC_SAMPLE_CHANNEL, TC_SAMPLE_FREQ);
 	tc_configure_interrupts(tc_sample, TC_SAMPLE_CHANNEL, &tc_interrupt_config);
 	tc_start(tc_sample, TC_SAMPLE_CHANNEL);
-	
+
 	/*****************************/
 	/**	Configuration du bouton **/
 	/*****************************/
@@ -312,11 +327,8 @@ int main(void)
 	// Initialise le USART1 en mode seriel RS232, a 57600 BAUDS, a FOSC0=12MHz.
 	init_dbg_rs232(FOSC0);
 
-
 	// Enregister le USART interrupt handler au INTC, level INT1
 	INTC_register_interrupt(&usart_int_handler, AVR32_USART1_IRQ, USART_INTRPT_PRIO);
-
-	print_dbg("Pret\r\n");
 
 	// Activer la source d'interrution du UART en reception (RXRDY)
 	AVR32_USART1.ier = AVR32_USART_IER_RXRDY_MASK;
