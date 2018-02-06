@@ -2,21 +2,29 @@
 #include <asf.h>
 #include "compiler.h"    // Definitions utile: de U8, S8, U16, S16, U32, S32, U32, U62, F32
 
-#define TC_INTERVAL_CHANNEL      0
-#define TC_INTERVAL              (&AVR32_TC)
-#define TC_INTERVAL_IRQ          AVR32_TC_IRQ0
-#define INTERVAL_INTRPT_PRIO     AVR32_INTC_INT1    // LED interrupt priority
-// On veut une interruption a 2000Hz
-#define TC_LED_FREQ              750
+#define TC_INTERVAL            (&AVR32_TC)
 
-#define SAMPLE_RATE_TGL_BTN      GPIO_PUSH_BUTTON_0
-#define SAMPLE_RATE_TGL_IRQ      AVR32_GPIO_IRQ_0
-#define SAMPLE_RATE_TGL_PRIO     AVR32_INTC_INT0
+#define TC_LED_CHANNEL         0
+#define TC_LED_IRQ             AVR32_TC_IRQ0
+#define LED_INTRPT_PRIO        AVR32_INTC_INT0    // LED interrupt priority
+// On veut 8 interruptions par seconde (1000/8=125ms)
+// Comme la valeur maximale est 65535, on configure une frequence de 32Hz et on ignore 1 interruption sur 8
+#define TC_LED_FREQ            46875              // solve(1/(fpba/32)*x=0.125, x) => x=46875
 
-#define USART_INTRPT_PRIO   AVR32_INTC_INT2    // USART interrupt priority
+#define TC_SAMPLE_CHANNEL      1
+#define TC_SAMPLE_IRQ          AVR32_TC_IRQ1
+#define SAMPLE_INTRPT_PRIO     AVR32_INTC_INT1
+// On veut 2000 interruptions par seconde (1000/2000=0.5ms)
+#define TC_SAMPLE_FREQ         187                // solve(1/(fpba/32)*x=0.0005, x) => x=187.5
 
-#define FPBA                FOSC0              // a 12MMz = 12000000Hz
-#define FALSE               0
+#define SAMPLE_RATE_TGL_BTN    GPIO_PUSH_BUTTON_0
+#define SAMPLE_RATE_TGL_IRQ    AVR32_GPIO_IRQ_0
+#define SAMPLE_RATE_TGL_PRIO   AVR32_INTC_INT0
+
+#define USART_INTRPT_PRIO      AVR32_INTC_INT2    // USART interrupt priority
+
+#define FPBA                   FOSC0              // a 12MMz = 12000000Hz
+#define FALSE                  0
 
 U32 char_recu;
 U8 compteur;
@@ -57,7 +65,6 @@ signed short adc_value_pot   = -1;
  * bit 3: taux d'échantillonage (0=1000, 1=2000)
 */
 U8 status;
-U8 led_timer_counter;
 #define STATUS_LED_POWER_STATE    1
 #define STATUS_INTERVAL_STATE     2
 #define STATUS_IN_ACQ             4
@@ -67,30 +74,33 @@ U8 led_timer_counter;
 #define LED_SET_STATE(led) if(status & STATUS_LED_POWER_STATE) { gpio_clr_gpio_pin(led); } else { gpio_set_gpio_pin(led); }
 
 __attribute__((__interrupt__))
-static void interval_interrupt_handler(void)
+static void interval_led_handler(void)
 {
 	// Reset l'interrupt
-	tc_read_sr(TC_INTERVAL, TC_INTERVAL_CHANNEL);
+	tc_read_sr(TC_INTERVAL, TC_LED_CHANNEL);
 	
 	status ^= STATUS_INTERVAL_STATE;
-	// Puisque cette fonction est execute 2000 fois par secondes, on skip 250 cycles avant de mofifier les led (4Hz)
-	if(++led_timer_counter >= 250) {
-		led_timer_counter=0;
-			// Flip le premier bit (XOR)
-			status ^= STATUS_LED_POWER_STATE;
-			
-			// Allume ou eteint les led selon le premier bit de led_status
-			LED_SET_STATE(LED0_GPIO);
-			if(status & STATUS_IN_ACQ)
-			{
-				LED_SET_STATE(LED1_GPIO);
-			}
-			else
-			{
-				// on eteint le led
-				gpio_set_gpio_pin(LED1_GPIO);
-			}
+	// Flip le premier bit (XOR)
+	status ^= STATUS_LED_POWER_STATE;
+		
+	// Allume ou eteint les led selon le premier bit de led_status
+	LED_SET_STATE(LED0_GPIO);
+	if(status & STATUS_IN_ACQ)
+	{
+		LED_SET_STATE(LED1_GPIO);
 	}
+	else
+	{
+		// on eteint le led
+		gpio_set_gpio_pin(LED1_GPIO);
+	}
+}
+
+__attribute__((__interrupt__))
+static void interval_sample_handler(void)
+{
+	// Reset l'interrupt
+	tc_read_sr(TC_INTERVAL, TC_SAMPLE_CHANNEL);
 	
 	// On exécute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
 	// ou lorsque le flag STATUS_INTERVAL_STATE est vrai (1 cyce sur 2, effectivement 1000 fois par seconde)
@@ -198,9 +208,10 @@ static void usart_int_handler(void)
 int main(void)
 {
 	volatile avr32_tc_t *tc_led = TC_INTERVAL;
-	static const tc_waveform_opt_t tc_led_waveform_opt =
+	volatile avr32_tc_t *tc_sample = TC_INTERVAL;
+	static const tc_waveform_opt_t tc_waveform_opt =
 	{
-		.channel  = TC_INTERVAL_CHANNEL,                    // Channel selection.
+		.channel  = TC_LED_CHANNEL,                    // Channel selection.
 
 		.bswtrg   = TC_EVT_EFFECT_NOOP,                // Software trigger effect on TIOB.
 		.beevt    = TC_EVT_EFFECT_NOOP,                // External event effect on TIOB.
@@ -222,7 +233,7 @@ int main(void)
 		.clki     = FALSE,                             // Clock inversion.
 		.tcclks   = TC_CLOCK_SOURCE_TC4                // Internal source clock 3, connected to fPBA / 8.
 	};
-	static const tc_interrupt_t tc_led_interrupt_config =
+	static const tc_interrupt_t tc_interrupt_config =
 	{
 		.etrgs = 0,
 		.ldrbs = 0,
@@ -259,18 +270,27 @@ int main(void)
 	/***************************/
 	
 	// On initialise le crystal externe sur le channel 0
-	pcl_switch_to_osc(PCL_OSC0, FOSC0, OSC0_STARTUP);
+	pcl_switch_to_osc(PCL_OSC0, FPBA, OSC0_STARTUP);
 	// On setup le interrupt handler
-	INTC_register_interrupt(&interval_interrupt_handler, TC_INTERVAL_IRQ, INTERVAL_INTRPT_PRIO);
-	// Autoriser les interruptions.
-	Enable_global_interrupt();
+	INTC_register_interrupt(&interval_led_handler, TC_LED_IRQ, LED_INTRPT_PRIO);
 	// Initialise le timer
-	tc_init_waveform(tc_led, &tc_led_waveform_opt);
+	tc_init_waveform(tc_led, &tc_waveform_opt);
 	// Configure la fréquence du timer
-	tc_write_rc(tc_led, TC_INTERVAL_CHANNEL, TC_LED_FREQ);
-	tc_configure_interrupts(tc_led, TC_INTERVAL_CHANNEL, &tc_led_interrupt_config);
+	tc_write_rc(tc_led, TC_LED_CHANNEL, TC_LED_FREQ);
+	tc_configure_interrupts(tc_led, TC_LED_CHANNEL, &tc_interrupt_config);
 	// Finalement, on demarre le timer
-	tc_start(tc_led, TC_INTERVAL_CHANNEL);
+	tc_start(tc_led, TC_LED_CHANNEL);
+	
+	/***************************************/
+	/** Configuration de l'echantillonage **/
+	/***************************************/
+
+	// Essentiellement les meme etapes que pour les led
+	INTC_register_interrupt(&interval_sample_handler, TC_SAMPLE_IRQ, SAMPLE_INTRPT_PRIO);
+	tc_init_waveform(tc_sample, &tc_waveform_opt);
+	tc_write_rc(tc_sample, TC_SAMPLE_CHANNEL, TC_SAMPLE_FREQ);
+	tc_configure_interrupts(tc_sample, TC_SAMPLE_CHANNEL, &tc_interrupt_config);
+	tc_start(tc_sample, TC_SAMPLE_CHANNEL);
 	
 	/*****************************/
 	/**	Configuration du bouton **/
@@ -296,7 +316,7 @@ int main(void)
 	// Enregister le USART interrupt handler au INTC, level INT1
 	INTC_register_interrupt(&usart_int_handler, AVR32_USART1_IRQ, USART_INTRPT_PRIO);
 
-	print_dbg("Pret\r\n\n");
+	print_dbg("Pret\r\n");
 
 	// Activer la source d'interrution du UART en reception (RXRDY)
 	AVR32_USART1.ier = AVR32_USART_IER_RXRDY_MASK;
@@ -312,6 +332,9 @@ int main(void)
 	#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
 	adc_enable(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
 	#endif
+
+	// Autoriser les interruptions.
+	Enable_global_interrupt();
 
 	while(1)
 	{
