@@ -2,61 +2,46 @@
 #include <asf.h>
 #include "compiler.h"    // Definitions utile: de U8, S8, U16, S16, U32, S32, U32, U62, F32
 
-#define TC_INTERVAL            (&AVR32_TC)
+#define TC_INTERVAL                 (&AVR32_TC)
 
-#define TC_LED_CHANNEL         0
-#define TC_LED_IRQ             AVR32_TC_IRQ0
-#define LED_INTRPT_PRIO        AVR32_INTC_INT2    // LED interrupt priority
+#define TC_LED_CHANNEL              0
+#define TC_LED_IRQ                  AVR32_TC_IRQ0
+#define LED_INTRPT_PRIO             AVR32_INTC_INT2    // LED interrupt priority
 // On veut 8 interruptions par seconde (1000/8=125ms)
 // Comme la valeur maximale est 65535, on configure une frequence de 32Hz et on ignore 1 interruption sur 8
-#define TC_LED_FREQ            46875              // solve(1/(fpba/32)*x=0.125, x) => x=46875
+#define TC_LED_FREQ                 46875              // solve(1/(fpba/32)*x=0.125, x) => x=46875
 
-#define TC_SAMPLE_CHANNEL      1
-#define TC_SAMPLE_IRQ          AVR32_TC_IRQ1
-#define SAMPLE_INTRPT_PRIO     AVR32_INTC_INT1
+#define TC_SAMPLE_CHANNEL           1
+#define TC_SAMPLE_IRQ               AVR32_TC_IRQ1
+#define SAMPLE_INTRPT_PRIO          AVR32_INTC_INT1
 // On veut 2000 interruptions par seconde (1000/2000=0.5ms)
-#define TC_SAMPLE_FREQ         187                // solve(1/(fpba/32)*x=0.0005, x) => x=187.5
+#define TC_SAMPLE_FREQ              187                // solve(1/(fpba/32)*x=0.0005, x) => x=187.5
 
-#define SAMPLE_RATE_TGL_BTN    GPIO_PUSH_BUTTON_0
-#define SAMPLE_RATE_TGL_IRQ    AVR32_GPIO_IRQ_0
-#define SAMPLE_RATE_TGL_PRIO   AVR32_INTC_INT0
+#define SAMPLE_RATE_TGL_BTN         GPIO_PUSH_BUTTON_0
+#define SAMPLE_RATE_TGL_IRQ         AVR32_GPIO_IRQ_0
+#define SAMPLE_RATE_TGL_PRIO        AVR32_INTC_INT0
 
-#define USART_INTRPT_PRIO      AVR32_INTC_INT0    // USART interrupt priority
+#define USART_INTRPT_PRIO           AVR32_INTC_INT0    // USART interrupt priority
+#define ACQ_START_CHAR              0x00000073         // 0x00000073 = 's'
+#define ACQ_STOP_CHAR               0x00000078         // 0x00000078 = 'x'
+
+/* Connection of the light sensor */
+#define ADC_LIGHT_CHANNEL           2
+#define ADC_LIGHT_PIN               AVR32_ADC_AD_2_PIN
+#define ADC_LIGHT_FUNCTION          AVR32_ADC_AD_2_FUNCTION
+
+/* Connection of the potentiometer */
+#define ADC_POTENTIOMETER_CHANNEL   1
+#define ADC_POTENTIOMETER_PIN       AVR32_ADC_AD_1_PIN
+#define ADC_POTENTIOMETER_FUNCTION  AVR32_ADC_AD_1_FUNCTION
 
 #define FPBA                   FOSC0              // a 12MMz = 12000000Hz
 #define FALSE                  0
 
 U32 char_recu;
 U8 compteur;
-
-//PArtie pour Potentiomètre et Lumière Test
-
-/* Connection of the light sensor */
-#  define EXAMPLE_ADC_LIGHT_CHANNEL           2
-#  define EXAMPLE_ADC_LIGHT_PIN               AVR32_ADC_AD_2_PIN
-#  define EXAMPLE_ADC_LIGHT_FUNCTION          AVR32_ADC_AD_2_FUNCTION
-
-/* Connection of the potentiometer */
-#  define EXAMPLE_ADC_POTENTIOMETER_CHANNEL   1
-#  define EXAMPLE_ADC_POTENTIOMETER_PIN       AVR32_ADC_AD_1_PIN
-#  define EXAMPLE_ADC_POTENTIOMETER_FUNCTION  AVR32_ADC_AD_1_FUNCTION
-
-/** GPIO pin/adc-function map. */
-const gpio_map_t ADC_GPIO_MAP = {
-	#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-	{EXAMPLE_ADC_LIGHT_PIN, EXAMPLE_ADC_LIGHT_FUNCTION},
-	#endif
-	#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-	{EXAMPLE_ADC_POTENTIOMETER_PIN, EXAMPLE_ADC_POTENTIOMETER_FUNCTION}
-	#endif
-};
-#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-volatile signed short adc_value_light = -1;
-#endif
-#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-volatile signed short adc_value_pot   = -1;
-#endif
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+volatile short adc_value_light = -1;
+volatile short adc_value_pot   = -1;
 
 /**
  * 8bits pour conserver l'etat du programme
@@ -104,23 +89,10 @@ static void interval_sample_handler(void)
 	
 	// On exécute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
 	// ou lorsque le flag STATUS_INTERVAL_STATE est vrai (1 cyce sur 2, effectivement 1000 fois par seconde)
-	if((status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE))&& (status&STATUS_IN_ACQ)) {
-		// Code pour l'echantillonage ici
-		//tests (Potentiometre et lumiere)
-		//if(status&STATUS_IN_ACQ)
-		//{
-			adc_start(&AVR32_ADC);
-			#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-			/* Get value for the light adc channel */
-			adc_value_light = adc_get_value(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
-			
-			#endif
-
-			#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-			/* Get value for the potentiometer adc channel */
-			adc_value_pot = adc_get_value(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
-			#endif
-		//}
+	if((status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE)) && (status & STATUS_IN_ACQ)) {
+		adc_start(&AVR32_ADC);
+		adc_value_light = adc_get_value(&AVR32_ADC, ADC_LIGHT_CHANNEL);
+		adc_value_pot = adc_get_value(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL);
 	}
 
 }
@@ -164,11 +136,11 @@ static void usart_int_handler(void)
 		
 		// DEBUG: On active ou desactive le clignotement du led1
 		// eventuellement, ceci sera activer lorsquón se met en mode acquisition (voir la spec)
-		if(char_recu == 0x00000073 && !(status & STATUS_IN_ACQ)) //0x00000073="s" et on check si le mode acquisition n'est pas activé
+		if(char_recu == ACQ_START_CHAR && !(status & STATUS_IN_ACQ)) 
 		{
 		    status ^= STATUS_IN_ACQ;
 		}
-		if(char_recu == 0x00000078 && (status & STATUS_IN_ACQ))//0x00000078="x" et on check si le mode acquisition est activé
+		if(char_recu == ACQ_STOP_CHAR && (status & STATUS_IN_ACQ))
 		{
 			status ^= STATUS_IN_ACQ;
 		}
@@ -270,6 +242,12 @@ int main(void)
 		{AVR32_USART1_RXD_0_0_PIN, AVR32_USART1_RXD_0_0_FUNCTION},
 		{AVR32_USART1_TXD_0_0_PIN, AVR32_USART1_TXD_0_0_FUNCTION}
 	};
+	
+	static const gpio_map_t ADC_GPIO_MAP =
+	{
+		{ADC_LIGHT_PIN, ADC_LIGHT_FUNCTION},
+		{ADC_POTENTIOMETER_PIN, ADC_POTENTIOMETER_FUNCTION}
+	};
 	// initialisation des variables globales;
 	compteur=0;
 	status=0;
@@ -306,6 +284,12 @@ int main(void)
 	tc_write_rc(tc_sample, TC_SAMPLE_CHANNEL, TC_SAMPLE_FREQ);
 	tc_configure_interrupts(tc_sample, TC_SAMPLE_CHANNEL, &tc_interrupt_config);
 	tc_start(tc_sample, TC_SAMPLE_CHANNEL);
+	
+	// Active les pins requisent pour l'ADC
+	gpio_enable_module(ADC_GPIO_MAP, sizeof(ADC_GPIO_MAP) / sizeof(ADC_GPIO_MAP[0]));
+	// Active l'ADC
+	adc_enable(&AVR32_ADC, ADC_LIGHT_CHANNEL);
+	adc_enable(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL);
 
 	/*****************************/
 	/**	Configuration du bouton **/
@@ -333,23 +317,8 @@ int main(void)
 	// Activer la source d'interrution du UART en reception (RXRDY)
 	AVR32_USART1.ier = AVR32_USART_IER_RXRDY_MASK;
 
-	/* Assign and enable GPIO pins to the ADC function. */
-	gpio_enable_module(ADC_GPIO_MAP, sizeof(ADC_GPIO_MAP) /
-	sizeof(ADC_GPIO_MAP[0]));
-
-	//Enable ADC Channel
-	#if defined(EXAMPLE_ADC_LIGHT_CHANNEL)
-	adc_enable(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
-	#endif
-	#if defined(EXAMPLE_ADC_POTENTIOMETER_CHANNEL)
-	adc_enable(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
-	#endif
-
 	// Autoriser les interruptions.
 	Enable_global_interrupt();
 
-	while(1)
-	{
-		// Rien a faire, tout ce fait par interuption 
-	}
+	while(1) {} // Rien a faire, tout ce fait par interuption 
 }
