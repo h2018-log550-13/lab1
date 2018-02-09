@@ -2,6 +2,11 @@
 #include <asf.h>
 #include "compiler.h"    // Definitions utile: de U8, S8, U16, S16, U32, S32, U32, U62, F32
 
+#define LED_ACTIVE                  LED0_GPIO
+#define LED_ACQ                     LED1_GPIO
+#define LED_ADC_OVERFLOW            LED2_GPIO
+#define LED_USART_OVERFLOW          LED3_GPIO
+
 #define TC_INTERVAL                 (&AVR32_TC)
 
 #define TC_LED_CHANNEL              0
@@ -15,7 +20,7 @@
 #define TC_SAMPLE_IRQ               AVR32_TC_IRQ1
 #define SAMPLE_INTRPT_PRIO          AVR32_INTC_INT1
 // On veut 2000 interruptions par seconde (1000/2000=0.5ms)
-#define TC_SAMPLE_FREQ              187                // solve(1/(fpba/32)*x=0.0005, x) => x=187.5
+#define TC_SAMPLE_FREQ              188                // solve(1/(fpba/32)*x=0.0005, x) => x=187.5
 
 #define SAMPLE_RATE_TGL_BTN         GPIO_PUSH_BUTTON_0
 #define SAMPLE_RATE_TGL_IRQ         AVR32_GPIO_IRQ_0
@@ -24,6 +29,11 @@
 #define USART_INTRPT_PRIO           AVR32_INTC_INT0    // USART interrupt priority
 #define ACQ_START_CHAR              0x00000073         // 0x00000073 = 's'
 #define ACQ_STOP_CHAR               0x00000078         // 0x00000078 = 'x'
+#define USART_TX_VAL_MASK           0x000000FE         // Les 7 premiers bits
+#define USART_TX_VAL_LIGHT_ID       1
+#define USART_TX_VAL_POT_ID         0
+#define USART_TX_SET_VAL(val,id) \
+AVR32_USART1.thr = ((val >> 2 & USART_TX_VAL_MASK) | id) & AVR32_USART_THR_TXCHR_MASK; AVR32_USART1.ier = AVR32_USART_IER_TXRDY_MASK;
 
 /* Connection of the light sensor */
 #define ADC_LIGHT_CHANNEL           2
@@ -34,14 +44,10 @@
 #define ADC_POTENTIOMETER_CHANNEL   1
 #define ADC_POTENTIOMETER_PIN       AVR32_ADC_AD_1_PIN
 #define ADC_POTENTIOMETER_FUNCTION  AVR32_ADC_AD_1_FUNCTION
-
-#define FPBA                   FOSC0              // a 12MMz = 12000000Hz
-#define FALSE                  0
-
-U32 char_recu;
-U8 compteur;
-volatile short adc_value_light = -1;
-volatile short adc_value_pot   = -1;
+   
+#define FPBA                        FOSC0              // a 12MMz = 12000000Hz
+#define FALSE                       0
+#define TRUE                        1
 
 /**
  * 8bits pour conserver l'etat du programme
@@ -49,11 +55,13 @@ volatile short adc_value_pot   = -1;
  * bit 2: en acquisition (0 = faux, 1 = vrai)
  * bit 3: taux d'échantillonage (0=1000, 1=2000)
 */
-U8 status;
+U8 status = 0;
 #define STATUS_LED_POWER_STATE    1
 #define STATUS_INTERVAL_STATE     2
 #define STATUS_IN_ACQ             4
 #define STATUS_SAMPLE_RATE        8
+#define STATUS_TX_LIGHT_READY    16
+#define STATUS_TX_POT_READY      32
 
 // Allume ou eteint un led selon STATUS_LED_POWER_STATE
 #define LED_SET_STATE(led) if(status & STATUS_LED_POWER_STATE) { gpio_clr_gpio_pin(led); } else { gpio_set_gpio_pin(led); }
@@ -69,18 +77,20 @@ static void interval_led_handler(void)
 	status ^= STATUS_LED_POWER_STATE;
 		
 	// Allume ou eteint les led selon le premier bit de led_status
-	LED_SET_STATE(LED0_GPIO);
+	LED_SET_STATE(LED_ACTIVE);
 	if(status & STATUS_IN_ACQ)
 	{
-		LED_SET_STATE(LED1_GPIO);
+		LED_SET_STATE(LED_ACQ);
 	}
 	else
 	{
 		// on eteint le led
-		gpio_set_gpio_pin(LED1_GPIO);
+		gpio_set_gpio_pin(LED_ACQ);
 	}
 }
 
+volatile short adc_value_light = -1;
+volatile short adc_value_pot   = -1;
 __attribute__((__interrupt__))
 static void interval_sample_handler(void)
 {
@@ -90,9 +100,26 @@ static void interval_sample_handler(void)
 	// On exécute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
 	// ou lorsque le flag STATUS_INTERVAL_STATE est vrai (1 cyce sur 2, effectivement 1000 fois par seconde)
 	if((status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE)) && (status & STATUS_IN_ACQ)) {
+		// On recupere la donne de l'ADC
 		adc_start(&AVR32_ADC);
 		adc_value_light = adc_get_value(&AVR32_ADC, ADC_LIGHT_CHANNEL);
 		adc_value_pot = adc_get_value(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL);
+		
+		// On transmet si le transmetteur est disponible et les precedante donnee on ete transmise
+		if ((AVR32_USART1.csr & (AVR32_USART_CSR_TXRDY_MASK))
+		 && (status & (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY)))
+		{
+			status |= (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY);
+			
+			// On transmet les donnees du capteur de lumiere
+			USART_TX_SET_VAL(adc_value_light, USART_TX_VAL_LIGHT_ID);
+			status ^= STATUS_TX_LIGHT_READY;
+		}
+		else 
+		{
+			// On allume le temoin pour le depassement de l'USART
+			gpio_clr_gpio_pin(LED_USART_OVERFLOW);
+		}
 	}
 
 }
@@ -116,6 +143,7 @@ static void toggle_sample_rate_handler(void)
 //                  Attention, lorsque le transmetteur ne transmet pas, ce bit est toujours a 1,
 //                  donc il va toujours relancer l'interruption si vous oubliez le bit TXRDY du IER.
 
+volatile U32 char_recu = 0;
 __attribute__((__interrupt__))
 static void usart_int_handler(void)
 {
@@ -124,18 +152,8 @@ static void usart_int_handler(void)
 	{
 		//Lire le char recu dans registre RHR, et le stocker dans un 32bit
 		char_recu = (AVR32_USART1.rhr & AVR32_USART_RHR_RXCHR_MASK);
-		//Eliminer la source de l'IRQ, bit RXRDY (automatiquement mis a zero a la lecture de RHR)
-		compteur=3;
-		//Retransmettre ce caractere vers le PC, si transmetteur disponible, renvoi un echo
-		if (AVR32_USART1.csr & (AVR32_USART_CSR_TXRDY_MASK))
-		{
-			//AVR32_USART1.thr = (char_recu) & AVR32_USART_THR_TXCHR_MASK; // on renvoi le char
-			// Activer la source d'interrution du UART en fin de transmission (TXRDY)
-			//AVR32_USART1.ier = AVR32_USART_IER_TXRDY_MASK;
-		}
 		
-		// DEBUG: On active ou desactive le clignotement du led1
-		// eventuellement, ceci sera activer lorsquón se met en mode acquisition (voir la spec)
+		// On active ou désactive le clignotement du led selon le charactere recus
 		if(char_recu == ACQ_START_CHAR && !(status & STATUS_IN_ACQ)) 
 		{
 		    status ^= STATUS_IN_ACQ;
@@ -144,20 +162,17 @@ static void usart_int_handler(void)
 		{
 			status ^= STATUS_IN_ACQ;
 		}
-		print_dbg_hex(adc_value_pot);
-		print_dbg("\r\n");
 		
 	}
 	else  // Donc cette l'interruption est lancee par une fin de transmission, bit TXRDY=1
 	{
-		if(compteur>0)
+		if(status & STATUS_TX_POT_READY)
 		{
-			//Retransmettre un caractere modifie vers le PC
-			AVR32_USART1.thr = (++char_recu) & AVR32_USART_THR_TXCHR_MASK;
-			// Eliminer la source de l'IRQ, bit TXRDY est automatiquement mis a zero en remplissant THR
-			compteur--;
+			// On transmet les donnees pour le potentiometre
+			USART_TX_SET_VAL(adc_value_pot, USART_TX_VAL_POT_ID);
+			status ^= STATUS_TX_POT_READY;
 		}
-		else
+		else if(!(status & STATUS_IN_ACQ))
 		{
 			// On arrete les transferts
 			// Impossible d'eliminer la source de l'IRQ sans remplir THR, parce que TXRDY est read-only.
@@ -232,11 +247,6 @@ int main(void)
 		.covfs = 0
 	};
 
-
-	/*******************************************/
-	/** Initialisation des variables globales **/
-	/*******************************************/
-	
 	static const gpio_map_t USART_GPIO_MAP =
 	{
 		{AVR32_USART1_RXD_0_0_PIN, AVR32_USART1_RXD_0_0_FUNCTION},
@@ -248,13 +258,9 @@ int main(void)
 		{ADC_LIGHT_PIN, ADC_LIGHT_FUNCTION},
 		{ADC_POTENTIOMETER_PIN, ADC_POTENTIOMETER_FUNCTION}
 	};
-	// initialisation des variables globales;
-	compteur=0;
-	status=0;
 	
 	// Preparatif pour l'enregistrement des interrupt handler du INTC.
 	INTC_init_interrupts();
-	
 	// Desactive les interruptions pendant la configuration.
 	Disable_global_interrupt();
 	
