@@ -107,7 +107,7 @@ static void interval_sample_handler(void)
 		
 		// On transmet si le transmetteur est disponible et les precedante donnee on ete transmise
 		if ((AVR32_USART1.csr & (AVR32_USART_CSR_TXRDY_MASK))
-		 && (status & (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY)))
+		 && !(status & (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY)))
 		{
 			status |= (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY);
 			
@@ -172,7 +172,7 @@ static void usart_int_handler(void)
 			USART_TX_SET_VAL(adc_value_pot, USART_TX_VAL_POT_ID);
 			status ^= STATUS_TX_POT_READY;
 		}
-		else if(!(status & STATUS_IN_ACQ))
+		else
 		{
 			// On arrete les transferts
 			// Impossible d'eliminer la source de l'IRQ sans remplir THR, parce que TXRDY est read-only.
