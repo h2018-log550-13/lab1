@@ -45,6 +45,8 @@ AVR32_USART1.thr = ((val >> 2 & USART_TX_VAL_MASK) | id) & AVR32_USART_THR_TXCHR
 #define ADC_POTENTIOMETER_PIN       AVR32_ADC_AD_1_PIN
 #define ADC_POTENTIOMETER_FUNCTION  AVR32_ADC_AD_1_FUNCTION
    
+#define ADC_IN_CONVERSION           (adc_check_eoc(&AVR32_ADC, ADC_LIGHT_CHANNEL) && adc_check_eoc(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL))
+   
 #define FPBA                        FOSC0              // a 12MMz = 12000000Hz
 #define FALSE                       0
 #define TRUE                        1
@@ -69,10 +71,6 @@ U8 status = 0;
 __attribute__((__interrupt__))
 static void interval_led_handler(void)
 {
-	// Reset l'interrupt
-	tc_read_sr(TC_INTERVAL, TC_LED_CHANNEL);
-	
-	status ^= STATUS_INTERVAL_STATE;
 	// Flip le premier bit (XOR)
 	status ^= STATUS_LED_POWER_STATE;
 		
@@ -87,6 +85,9 @@ static void interval_led_handler(void)
 		// on eteint le led
 		gpio_set_gpio_pin(LED_ACQ);
 	}
+	
+	// Reset l'interrupt
+	tc_read_sr(TC_INTERVAL, TC_LED_CHANNEL);
 }
 
 volatile short adc_value_light = -1;
@@ -94,42 +95,59 @@ volatile short adc_value_pot   = -1;
 __attribute__((__interrupt__))
 static void interval_sample_handler(void)
 {
-	// Reset l'interrupt
-	tc_read_sr(TC_INTERVAL, TC_SAMPLE_CHANNEL);
+	status ^= STATUS_INTERVAL_STATE;
 	
-	// On exécute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
+	// On execute quand le flag STATUS_SAMPLE_RATE est vrai (2000 fois par seconde)
 	// ou lorsque le flag STATUS_INTERVAL_STATE est vrai (1 cyce sur 2, effectivement 1000 fois par seconde)
 	if((status & STATUS_SAMPLE_RATE || (status & STATUS_INTERVAL_STATE)) && (status & STATUS_IN_ACQ)) {
-		// On recupere la donne de l'ADC
-		adc_start(&AVR32_ADC);
-		adc_value_light = adc_get_value(&AVR32_ADC, ADC_LIGHT_CHANNEL);
-		adc_value_pot = adc_get_value(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL);
 		
-		// On transmet si le transmetteur est disponible et les precedante donnee on ete transmise
-		if ((AVR32_USART1.csr & (AVR32_USART_CSR_TXRDY_MASK))
-		 && !(status & (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY)))
+		if(ADC_IN_CONVERSION)
 		{
-			status |= (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY);
-			
-			// On transmet les donnees du capteur de lumiere
-			USART_TX_SET_VAL(adc_value_light, USART_TX_VAL_LIGHT_ID);
-			status ^= STATUS_TX_LIGHT_READY;
+			gpio_clr_gpio_pin(LED_ADC_OVERFLOW);
 		}
-		else 
+		else
 		{
-			// On allume le temoin pour le depassement de l'USART
-			gpio_clr_gpio_pin(LED_USART_OVERFLOW);
+			adc_start(&AVR32_ADC);
 		}
 	}
+	
+	// Reset l'interrupt
+	tc_read_sr(TC_INTERVAL, TC_SAMPLE_CHANNEL);
+}
 
+__attribute__((__interrupt__))
+static void sample_conversion_complete_handler(void)
+{	
+	adc_value_light = adc_get_value(&AVR32_ADC, ADC_LIGHT_CHANNEL);
+	adc_value_pot = adc_get_value(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL);
+
+	// On transmet si le transmetteur est disponible et les precedante donnee on ete transmise
+	if ((AVR32_USART1.csr & (AVR32_USART_CSR_TXRDY_MASK))
+	&& !(status & (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY)))
+	{
+		status |= (STATUS_TX_LIGHT_READY | STATUS_TX_POT_READY);
+			
+		// On transmet les donnees du capteur de lumiere
+		USART_TX_SET_VAL(adc_value_light, USART_TX_VAL_LIGHT_ID);
+		status ^= STATUS_TX_LIGHT_READY;
+	}
+	else
+	{
+		// On allume le temoin pour le depassement de l'USART
+		gpio_clr_gpio_pin(LED_USART_OVERFLOW);
+	}
+	
+	// Reset de l'interrupt
+	volatile int i = ((avr32_adc_t*)&AVR32_ADC)->lcdr;
 }
 
 __attribute__((__interrupt__))
 static void toggle_sample_rate_handler(void)
 {
+	status ^= STATUS_SAMPLE_RATE;
+	
 	// reset l'interrupt
 	gpio_clear_pin_interrupt_flag(SAMPLE_RATE_TGL_BTN);
-	status ^= STATUS_SAMPLE_RATE;
 }
 
 //==================================================================================
@@ -294,8 +312,12 @@ int main(void)
 	// Active les pins requisent pour l'ADC
 	gpio_enable_module(ADC_GPIO_MAP, sizeof(ADC_GPIO_MAP) / sizeof(ADC_GPIO_MAP[0]));
 	// Active l'ADC
+	adc_configure(&AVR32_ADC);
 	adc_enable(&AVR32_ADC, ADC_LIGHT_CHANNEL);
 	adc_enable(&AVR32_ADC, ADC_POTENTIOMETER_CHANNEL);
+
+	(&AVR32_ADC)->ier = AVR32_ADC_DRDY_MASK;
+	INTC_register_interrupt(&sample_conversion_complete_handler, AVR32_ADC_IRQ, AVR32_INTC_INT0);
 
 	/*****************************/
 	/**	Configuration du bouton **/
