@@ -26,6 +26,7 @@
 #define SAMPLE_RATE_TGL_IRQ         AVR32_GPIO_IRQ_0
 #define SAMPLE_RATE_TGL_PRIO        AVR32_INTC_INT0
 
+#define USART_BAUDRATE              56700
 #define USART_INTRPT_PRIO           AVR32_INTC_INT0    // USART interrupt priority
 #define ACQ_START_CHAR              0x00000073         // 0x00000073 = 's'
 #define ACQ_STOP_CHAR               0x00000078         // 0x00000078 = 'x'
@@ -264,6 +265,15 @@ int main(void)
 		.lovrs = 0,
 		.covfs = 0
 	};
+	
+	usart_options_t usart_opt =
+	{
+		.baudrate = USART_BAUDRATE,
+		.charlength = 8,
+		.paritytype = USART_NO_PARITY,
+		.stopbits = USART_1_STOPBIT,
+		.channelmode = USART_NORMAL_CHMODE
+	};
 
 	static const gpio_map_t USART_GPIO_MAP =
 	{
@@ -337,7 +347,7 @@ int main(void)
 	gpio_enable_module(USART_GPIO_MAP,sizeof(USART_GPIO_MAP) / sizeof(USART_GPIO_MAP[0]));
 
 	// Initialise le USART1 en mode seriel RS232, a 57600 BAUDS, a FOSC0=12MHz.
-	init_dbg_rs232(FOSC0);
+	usart_init_rs232((&AVR32_USART1), &usart_opt, FOSC0);
 
 	// Enregister le USART interrupt handler au INTC, level INT1
 	INTC_register_interrupt(&usart_int_handler, AVR32_USART1_IRQ, USART_INTRPT_PRIO);

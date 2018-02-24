@@ -36,7 +36,6 @@
     <option id="avr32.drivers.pm" value="Add" config="" content-id="Atmel.ASF" />
     <option id="avr32.drivers.tc" value="Add" config="" content-id="Atmel.ASF" />
     <option id="avr32.drivers.usart" value="Add" config="" content-id="Atmel.ASF" />
-    <option id="avr32.utils.print_funcs" value="Add" config="" content-id="Atmel.ASF" />
     <option id="common.boards" value="Add" config="" content-id="Atmel.ASF" />
     <option id="common.services.basic.clock" value="Add" config="" content-id="Atmel.ASF" />
     <option id="common.services.delay" value="Add" config="" content-id="Atmel.ASF" />
@@ -151,7 +150,6 @@
       <Value>../src/ASF/avr32/drivers/adc</Value>
       <Value>../src/ASF/avr32/drivers/flashc</Value>
       <Value>../src/ASF/avr32/drivers/usart</Value>
-      <Value>../src/ASF/avr32/utils/debug</Value>
       <Value>../src/ASF/avr32/drivers/pm</Value>
       <Value>../src/ASF/avr32/drivers/tc</Value>
       <Value>../src/ASF/common/services/clock</Value>
@@ -192,7 +190,6 @@
       <Value>../src/ASF/avr32/drivers/adc</Value>
       <Value>../src/ASF/avr32/drivers/flashc</Value>
       <Value>../src/ASF/avr32/drivers/usart</Value>
-      <Value>../src/ASF/avr32/utils/debug</Value>
       <Value>../src/ASF/avr32/drivers/pm</Value>
       <Value>../src/ASF/avr32/drivers/tc</Value>
       <Value>../src/ASF/common/services/clock</Value>
@@ -217,7 +214,6 @@
       <Value>../src/ASF/avr32/drivers/adc</Value>
       <Value>../src/ASF/avr32/drivers/flashc</Value>
       <Value>../src/ASF/avr32/drivers/usart</Value>
-      <Value>../src/ASF/avr32/utils/debug</Value>
       <Value>../src/ASF/avr32/drivers/pm</Value>
       <Value>../src/ASF/avr32/drivers/tc</Value>
       <Value>../src/ASF/common/services/clock</Value>
@@ -257,7 +253,6 @@
       <Value>../src/ASF/avr32/drivers/adc</Value>
       <Value>../src/ASF/avr32/drivers/flashc</Value>
       <Value>../src/ASF/avr32/drivers/usart</Value>
-      <Value>../src/ASF/avr32/utils/debug</Value>
       <Value>../src/ASF/avr32/drivers/pm</Value>
       <Value>../src/ASF/avr32/drivers/tc</Value>
       <Value>../src/ASF/common/services/clock</Value>
@@ -299,7 +294,6 @@
       <Value>../src/ASF/avr32/drivers/adc</Value>
       <Value>../src/ASF/avr32/drivers/flashc</Value>
       <Value>../src/ASF/avr32/drivers/usart</Value>
-      <Value>../src/ASF/avr32/utils/debug</Value>
       <Value>../src/ASF/avr32/drivers/pm</Value>
       <Value>../src/ASF/avr32/drivers/tc</Value>
       <Value>../src/ASF/common/services/clock</Value>
@@ -325,7 +319,6 @@
       <Value>../src/ASF/avr32/drivers/adc</Value>
       <Value>../src/ASF/avr32/drivers/flashc</Value>
       <Value>../src/ASF/avr32/drivers/usart</Value>
-      <Value>../src/ASF/avr32/utils/debug</Value>
       <Value>../src/ASF/avr32/drivers/pm</Value>
       <Value>../src/ASF/avr32/drivers/tc</Value>
       <Value>../src/ASF/common/services/clock</Value>
